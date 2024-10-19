@@ -1,0 +1,165 @@
+---
+title: "Simple exponential smoothing"
+author: "Beatrice Spagnolo"
+date: "2023-07-01"
+output: html_document
+---
+
+Importo la libreria fpp3.
+```{r}
+library(fpp3)
+```
+
+## Stock prices per Apple
+Utilizzo il dataset gafa_stock contenente i prezzi delle azioni di Apple in dollari statunitensi dal 2014 al 2018.
+
+L'insieme di dati può includere le seguenti informazioni per ciascuna azione:
+data, prezzo di apertura, prezzo di chiusura, prezzo massimo, prezzo minimo e volume di scambio.
+
+Stampo i simboli che identificano i vari tipi di azioni contenute nel dataframe.
+```{r}
+possible_symbols <- unique(gafa_stock$Symbol)
+print(possible_symbols)
+```
+
+
+# Grafico iniziale
+Grafico dell'intera serie temporale
+```{r}
+gafa_stock %>%
+  filter(Symbol == "AAPL") %>%
+  mutate(trading_day = row_number()) %>%
+  update_tsibble(index = trading_day, regular = TRUE) %>% autoplot(Close)
+```
+
+# Grafico dei dati
+Consiedero il prezzo di chiusura delle azioni della apple, relativi all'anno 2018.
+```{r}
+aapl <- gafa_stock %>%
+  filter(Symbol == "AAPL", year(Date) >= 2018) %>%
+  mutate(trading_day = row_number()) %>%
+  update_tsibble(index = trading_day, regular = TRUE) 
+aapl_sub <- aapl %>% filter(trading_day > 120) %>% 
+  select(trading_day, Close) %>% 
+  mutate(trading_day = trading_day-120)
+aapl_sub %>% autoplot(Close)
+```
+
+
+## SIMPLE EXPONENTIAL SMOOTHING
+Utilizziamo la funzione ETS del pacchetto ffp3 la quale accetta 3 componenti: error, trend e season.
+
+Memorizzo nello variabile fit il risultato del lisciamento esponenziale semplice.
+
+Attraverso tidy(fit) restituisco alcune informazioni sui parametri del modello.
+```{r}
+fit <- aapl_sub %>%
+  model(S1 = ETS(Close ~ error("A") + trend("N") + season("N")))
+```
+
+Stampo i valori dei parametri $\alpha$ e l[0]
+```{r}
+tidy_result <- tidy(fit) %>%
+  mutate(estimate = round(estimate, 5))
+
+tidy_result %>%
+  select(term, estimate) %>%
+  mutate(output = paste(term, ":", estimate)) %>%
+  pull(output) %>%
+  cat(sep = "\n")
+```
+
+La funzione components() restituisce un elenco dei componenti del modello di previsione. 
+```{r}
+fit %>% components()
+```
+
+
+La funzione Augment calcola le previsioni e i residui per il modello.
+```{r}
+aaplaug <- fit %>%
+  augment() 
+head(aaplaug)
+```
+
+
+Grafico in cui visualizzo in rosso l’applicazione del lisciamento esponenziale semplice ai dati esistenti, predico i dati al tempo T+1.
+```{r}
+aaplaug %>%
+  autoplot(Close) + 
+  geom_line(aes(x=trading_day, y = .fitted), col = "red") +
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close")
+```
+
+
+Analizzo come diversi valori del parametro $\alpha$ influenzano la predizione:
+il valore di alpha determina l'importanza relativa dei dati recenti rispetto ai dati passati nel processo di previsione.
+```{r}
+aaplaug <- aapl_sub %>%
+  model(`alpha 0.03` = ETS(Close ~ error("A") + 
+                   trend("N", alpha = 0.03) + season("N")),
+        `alpha 0.9` = ETS(Close ~ error("A") + 
+                   trend("N", alpha = 0.9) + season("N"))
+  ) %>% 
+  augment() 
+head(aaplaug)
+```
+
+
+Rappresento graficamente le previsioni generate dal modello di lisciamento esponenziale semplice per entrambi i valori di alpha.
+In grigio possiamo notare il grafico dei dati osservati e in azzurro e rosso le predizioni dei due modelli che si differenziano per i diversi valori di alpha che utilizzano.
+```{r}
+aaplaug %>% 
+  autoplot(.fitted)  +
+  geom_line(aes(x = trading_day, y = Close), col = "grey") +
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close")
+```
+
+```{r}
+aaplaug %>% 
+  autoplot(.fitted)  +
+  geom_line(aes(x = trading_day, y = Close), col = "grey") +
+ labs(title="Apple Stock Price at Close",
+       x = "Trading day",
+       y="Price (USD)") +
+  guides(colour = guide_legend(title = "Modelli"))
+```
+
+
+$\alpha$ = 0.03  implica che i cambiamenti nel tempo siano limitati, risultando in una serie di valori stimati più uniforme e liscia.
+
+$\alpha$ = 0.9   porta a un aggiustamento significativo nel livello stimato \(l_t\) ad ogni intervallo di tempo, provocando fluttuazioni più marcate
+
+
+# Previsioni future
+La funzione forecast() genera previsioni per un certo numero di periodi futuri, specificato tramite il parametro h.
+
+```{r}
+a_fc <- fit %>%
+  forecast(h=10)
+head(a_fc)
+```
+
+
+Visualizzo il grafico con con solo le previsioni appena prodotte.
+```{r}
+a_fc %>%
+  autoplot(level=NULL) +
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close - forecast")
+```
+
+
+Visualizzo il grafico della serie temporale originale con l'aggiunta delle previsioni.
+```{r}
+a_fc %>%
+  autoplot(aapl_sub, level=NULL) +
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close with forecast")
+```
