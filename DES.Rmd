@@ -1,0 +1,127 @@
+---
+title: "Double exponential smoothing"
+author: "Beatrice Spagnolo"
+date: "2023-07-10"
+output: html_document
+---
+
+Importo la libreria fpp3.
+```{r}
+library(fpp3)
+```
+
+## Stock prices per Apple
+Utilizzo il dataset gafa_stock contenente i prezzi delle azioni di Apple in dollari statunitensi dal 2014 al 2018.
+
+L'insieme di dati può includere le seguenti informazioni per ciascuna azione:
+data, prezzo di apertura, prezzo di chiusura, prezzo massimo, prezzo minimo e volume di scambio.
+
+Stampo i simboli che identificano i vari tipi di azioni contenute nel dataframe.
+```{r}
+possible_symbols <- unique(gafa_stock$Symbol)
+print(possible_symbols)
+```
+
+
+### Grafico iniziale
+Grafico dell'intera serie temporale
+```{r}
+gafa_stock %>%
+  filter(Symbol == "AAPL") %>%
+  mutate(trading_day = row_number()) %>%
+  update_tsibble(index = trading_day, regular = TRUE) %>% autoplot(Close)
+```
+
+### Grafico dei dati
+Consiedero il prezzo di chiusura delle azioni della apple, relativi all'anno 2018.
+```{r}
+aapl <- gafa_stock %>%
+  filter(Symbol == "AAPL", year(Date) >= 2018) %>%
+  mutate(trading_day = row_number()) %>%
+  update_tsibble(index = trading_day, regular = TRUE) 
+aapl_sub <- aapl %>% filter(trading_day > 120) %>% 
+  select(trading_day, Close) %>% 
+  mutate(trading_day = trading_day-120)
+aapl_sub %>% autoplot(Close)
+```
+
+
+Creo un modello di tipo DES
+```{r}
+fit <- aapl_sub %>%
+  model(St = ETS(Close ~ error("A") + trend("A") + season("N")))
+tidy(fit)
+```
+
+
+```{r}
+autoplot(fit %>% components())
+```
+
+
+## 1) confronto simple ES con double ES
+```{r}
+fit2 <- aapl_sub %>%
+  model(`Simple ES` = ETS(Close ~ error("A") + trend("N") + season("N")), 
+        `Double ES` = ETS(Close ~ error("A") + trend("A") + season("N"))
+  )
+```
+
+
+Predizioni future
+```{r}
+afct <- fit2 %>%
+  forecast(h=50) 
+head(afct)
+```
+
+```{r}
+afct %>%
+  autoplot(aapl_sub, level=NULL) +
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close") +
+  guides(colour = guide_legend(title = "Modelli"))
+```
+
+
+## 2) confronto Double ES = Holt's mehod con Damped Holt's method
+```{r}
+fit3 <- aapl_sub %>%
+  model(`Double ES` = ETS(Close ~ error("A") + 
+                   trend("A") + season("N")),
+        `Damped Double ES` = ETS(Close ~ error("A") + 
+                   trend("Ad") + season("N")),
+        `Simple ES` = ETS(Close ~ error("A") + 
+                   trend("N") + season("N"))
+  )
+afct <- fit3 %>%
+  forecast(h=50) 
+afct %>%  
+  autoplot(aapl_sub, level=NULL) + 
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close") +
+  guides(colour = guide_legend(title = "Modelli"))
+```
+
+
+## 3) Confronto tutti e 3 i modelli assieme
+```{r}
+fit4 <- aapl_sub %>%
+  model(`Simple ES` = ETS(Close ~ error("A") + 
+                   trend("N") + season("N")), 
+        `Double ES` = ETS(Close ~ error("A") + 
+                   trend("A") + season("N")),
+        `Damped Double ES` = ETS(Close ~ error("A") + 
+                   trend("Ad") + season("N"))
+  )
+afct <- fit4 %>%
+  forecast(h=50) 
+afct %>%  
+  autoplot(aapl_sub, level=NULL) + 
+  xlab("Trading day") +
+  ylab("Price (USD)") +
+  ggtitle("Apple Stock Price at Close") +
+  guides(colour = guide_legend(title = "Modelli"))
+```
