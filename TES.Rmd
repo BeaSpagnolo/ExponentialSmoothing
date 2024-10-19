@@ -1,0 +1,97 @@
+---
+title: "Third exponential smoothing"
+author: "Beatrice Spagnolo"
+date: "2023-07-11"
+output: html_document
+---
+
+Caricamento della libreria fpp3 per analisi di serie temporali
+```{r}
+library(fpp3)
+```
+
+### Descrizione del dataset
+Il dataset "tourism" contiene informazioni sulle notti trascorse in Australia, con i dati delle gite domestiche notturne suddivisi per regione e scopo dal primo trimestre del 1998 fino al quarto trimestre del 2016.
+
+**Fonte:** Tourism Research Australia, che fornisce statistiche e ricerche a supporto del governo, dell'industria turistica e delle aziende australiane.
+
+
+Filtraggio dei dati per includere solo i viaggi a scopo di "Holiday"
+```{r}
+aus_holidays <- tourism %>%
+  filter(Purpose == "Holiday") %>%
+  summarise(Trips = sum(Trips) / 1e3)  # Somma dei viaggi convertita in milioni
+
+# Visualizzazione dei viaggi a scopo di "Holiday"
+aus_holidays %>% autoplot(Trips)
+```
+
+## Modello esponenziale additivo per i viaggi a scopo di "Holiday"
+```{r}
+
+fit_a <- aus_holidays %>%
+  model(additive = ETS(Trips ~ error("A") + trend("A") + season("A")))
+
+autoplot(fit_a %>% components())
+```
+
+
+## Modello esponenziale moltiplicativo per i viaggi a scopo di "Holiday"
+```{r}
+fit_m <- aus_holidays %>%
+  model(multiplicative = ETS(Trips ~ error("M") + trend("A") + season("M")))
+
+autoplot(fit_m %>% components())
+```
+
+### Confronto tra modelli
+Nello stesso grafico, possiamo visualizzare i componenti dei modelli additivo e moltiplicativo per confrontarli.
+```{r}
+fit_am <- aus_holidays %>%
+  model(
+    additive = ETS(Trips ~ error("A") + trend("A") + season("A")),
+    multiplicative = ETS(Trips ~ error("M") + trend("A") + season("M"))
+  )
+
+autoplot(fit_am %>% components())
+```
+
+## Analisi dei residui
+Osserviamo che c'è una differenza evidente nei residui (reminder) dei due modelli.
+```{r}
+tidy(fit_a)
+
+tidy(fit_m)
+```
+
+Confronto dei parametri stagionali
+
+Notiamo una differenza sostanziale nei valori del parametro stagionale:
+- Modello additivo: intorno a 0
+- Modello moltiplicativo: intorno a 1
+
+
+### Previsioni per i successivi 3 anni
+Generiamo previsioni per i prossimi 3 anni utilizzando il modello combinato.
+```{r}
+# Creazione delle previsioni per 3 anni
+fc <- fit_am %>% forecast(h = "3 years")
+
+fc %>%
+  autoplot(aus_holidays, level = NULL) +
+  labs(title = "Turismo interno australiano",
+       x = "Trimestre",
+       y = "Viaggi con pernottamenti (milioni)") +
+  guides(colour = guide_legend(title = "Previsione"))
+```
+
+### Valutazione dei modelli
+Confrontiamo la precisione dei modelli additivo e moltiplicativo per determinare quale sia il migliore.
+```{r}
+accuracy(fit_a)
+
+accuracy(fit_m)
+```
+
+### Conclusione
+Dai risultati, il modello moltiplicativo si dimostra il migliore per la previsione dei viaggi notturni a scopo di "Holiday".
